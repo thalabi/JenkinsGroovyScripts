@@ -1,33 +1,43 @@
 import groovy.json.JsonSlurper
 import hudson.slaves.EnvironmentVariablesNodeProperty
+import com.cloudbees.plugins.credentials.CredentialsProvider
+import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials
+import jenkins.model.Jenkins
 
 println ("artifactItemList begin")
-println ("binding: " + binding)
-def Map<String, String> bindingMap = binding.getVariables()
-bindingMap.each{entry -> 
-	println ("binding key: " + entry.key + ", binding value: " + entry.value)
-}
-def jenkins = binding.getVariable("jenkins")
-def globalNodeProperties = jenkins.getGlobalNodeProperties()
-def envVarsNodePropertyList = globalNodeProperties.getAll(EnvironmentVariablesNodeProperty.class);
-def envVars = envVarsNodePropertyList.get(0).getEnvVars();
-println ("envVars: " + envVars);
-def deploymentUsername = envVars.get("NEXUS3_DEPLOYMENT_USERNAME")
-println ("deploymentUsername: " + deploymentUsername)
-def deploymentPassword = getPassword(deploymentUsername)
+//def Map<String, String> bindingMap = binding.getVariables()
+//bindingMap.each{entry -> 
+//	println ("binding key: " + entry.key + ", binding value: " + entry.value)
+//}
+def deploymentCredentialsId = binding.getVariable("deploymentCredentialsId")
+println ("deploymentCredentialsId: " + deploymentCredentialsId)
+def projectName = binding.getVariable("projectName")
+println ("projectName: " + projectName)
+
+//def jenkins = binding.getVariable("jenkins")
+//def globalNodeProperties = jenkins.getGlobalNodeProperties()
+//def envVarsNodePropertyList = globalNodeProperties.getAll(EnvironmentVariablesNodeProperty.class);
+//def envVars = envVarsNodePropertyList.get(0).getEnvVars();
+//println ("envVars: " + envVars);
+//def deploymentUsername = envVars.get(deploymentCredentialsId)
+
+
+//def deploymentPassword = getPassword(deploymentUsername)
 //println deploymentPassword
+def deploymentCredentials = getCredentials(deploymentCredentialsId)
+//println ("deploymentCredentials: "+deploymentCredentials)
 
 try {
     List<String> artifacts = new ArrayList<String>()
     def releasesArtifactsUrl = "http://localhost:8081/service/rest/v1/components?repository=maven-releases"          
     def snapshotsArtifactsUrl = "http://localhost:8081/service/rest/v1/components?repository=maven-snapshots"          
-    def releasesArtifactsJson = ["curl", "-s", "-u", deploymentUsername+":"+deploymentPassword, "-H", "accept: application/json", "-k", "--url", "${releasesArtifactsUrl }"].execute().text
-    def snapshotsArtifactsJson = ["curl", "-s", "-u", deploymentUsername+":"+deploymentPassword, "-H", "accept: application/json", "-k", "--url", "${snapshotsArtifactsUrl }"].execute().text
+    def releasesArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${releasesArtifactsUrl }"].execute().text
+    def snapshotsArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${snapshotsArtifactsUrl }"].execute().text
 
     // parse releases json
-    def releasesArtifacts = parseAndGetArtifactList(releasesArtifactsJson, "FlightLogServer", true)
+    def releasesArtifacts = parseAndGetArtifactList(releasesArtifactsJson, projectName, true)
     // parse snapshots json
-    def snapshotsArtifacts = parseAndGetArtifactList(snapshotsArtifactsJson, "FlightLogServer", false)
+    def snapshotsArtifacts = parseAndGetArtifactList(snapshotsArtifactsJson, projectName, false)
 
     artifacts.addAll(releasesArtifacts)
     artifacts.addAll(snapshotsArtifacts)
@@ -46,32 +56,35 @@ def parseAndGetArtifactList(artifactsJson, itemName, isRelease) {
     def artifactPrefix = isRelease ? "RELEASE " : "SNAPSHOT "
     for(item in items){
         if (item.name == itemName)
-        artifacts.add(artifactPrefix + item.version)
+			artifacts.add(artifactPrefix + item.version)
     } 
     return artifacts;
 }
 
-def getPassword(username) {
-    def creds = com.cloudbees.plugins.credentials.CredentialsProvider.lookupCredentials(
-        com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials.class,
-        jenkins.model.Jenkins.instance
+//
+//  Lookup the credentials by credentialsId and return the
+//	username and password seperated by a colon i.e. username:password
+//
+def getCredentials(credentialsId) {
+    def creds = CredentialsProvider.lookupCredentials(
+        StandardUsernamePasswordCredentials.class,
+        Jenkins.instance
     )
 
-    def c = creds.findResult { it.username == username ? it : null }
+    def c = creds.findResult { it.id == credentialsId ? it : null }
 
     if ( c ) {
-        println "found credential ${c.id} for username ${c.username}"
+        println "Found credentials id: ${c.id}"
 
-        def systemCredentialsProvider = jenkins.model.Jenkins.instance.getExtensionList(
+        def systemCredentialsProvider = Jenkins.instance.getExtensionList(
             'com.cloudbees.plugins.credentials.SystemCredentialsProvider'
             ).first()
 
         def password = systemCredentialsProvider.credentials.first().password
-
-	    return password.getPlainText()
-
+		//println ("password.getPlainText(): "+password.getPlainText())
+	    return c.username + ":" + password.getPlainText()
 
     } else {
-        println "could not find credential for ${username}"
+        println "Could not find credentials for username: ${username}"
     }
 }
