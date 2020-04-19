@@ -4,7 +4,7 @@ import com.cloudbees.plugins.credentials.CredentialsProvider
 import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials
 import jenkins.model.Jenkins
 
-println ("artifactItemList begin")
+println ((new Date()).format("yyyy-MM-dd hh:mm:ss") + " artifactItemList begin")
 //def Map<String, String> bindingMap = binding.getVariables()
 //bindingMap.each{entry -> 
 //	println ("binding key: " + entry.key + ", binding value: " + entry.value)
@@ -28,7 +28,8 @@ def deploymentCredentials = getCredentials(deploymentCredentialsId)
 //println ("deploymentCredentials: "+deploymentCredentials)
 
 try {
-    List<String> artifacts = new ArrayList<String>()
+    List<String> artifacts = new ArrayList<>()
+	List<String> artifactItemList = new ArrayList<>()
     def releasesArtifactsUrl = "http://localhost:8081/service/rest/v1/components?repository=maven-releases"          
     def snapshotsArtifactsUrl = "http://localhost:8081/service/rest/v1/components?repository=maven-snapshots"          
     def releasesArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${releasesArtifactsUrl }"].execute().text
@@ -41,22 +42,29 @@ try {
 
     artifacts.addAll(releasesArtifacts)
     artifacts.addAll(snapshotsArtifacts)
-
-	println ("artifactItemList end")
-    return artifacts
+	
+	artifacts.sort() {a,b -> b.version <=> a.version } // sort on version in reverese
+	
+	for(artifact in artifacts){
+		artifactItemList.add(artifact.releaseOrSnapshot + " " + artifact.version)
+	}
+	println ((new Date()).format("yyyy-MM-dd hh:mm:ss") + " artifactItemList end")
+    return artifactItemList
 } catch (Exception e) {
     print "There was a problem fetching the artifacts"
 }
 
 def parseAndGetArtifactList(artifactsJson, itemName, isRelease) {
-    List<String> artifacts = new ArrayList<>()
+    List<Artifact> artifacts = new ArrayList<>()
     def jsonSlurper = new JsonSlurper()
     def artifactsJsonObject = jsonSlurper.parseText(artifactsJson)
     def items = artifactsJsonObject.items
-    def artifactPrefix = isRelease ? "RELEASE " : "SNAPSHOT "
+    def releaseOrSnapshot = isRelease ? "RELEASE" : "SNAPSHOT"
     for(item in items){
-        if (item.name == itemName)
-			artifacts.add(artifactPrefix + item.version)
+        if (item.name == itemName) {
+			artifact = new Artifact(version: item.version, releaseOrSnapshot: releaseOrSnapshot)
+			artifacts.add(artifact)
+		}
     } 
     return artifacts;
 }
@@ -87,4 +95,9 @@ def getCredentials(credentialsId) {
     } else {
         println "Could not find credentials for username: ${username}"
     }
+}
+
+class Artifact{
+    String version
+	String releaseOrSnapshot
 }
