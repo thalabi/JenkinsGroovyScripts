@@ -30,23 +30,44 @@ def deploymentCredentials = getCredentials(deploymentCredentialsId)
 try {
     List<String> artifacts = new ArrayList<>()
 	List<String> artifactItemList = new ArrayList<>()
-    def releasesArtifactsUrl = "http://localhost:8081/service/rest/v1/components?repository=maven-releases"          
-    def snapshotsArtifactsUrl = "http://localhost:8081/service/rest/v1/components?repository=maven-snapshots"          
-    def releasesArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${releasesArtifactsUrl }"].execute().text
-    def snapshotsArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${snapshotsArtifactsUrl }"].execute().text
-
-    // parse releases json
-    def releasesArtifacts = parseAndGetArtifactList(releasesArtifactsJson, projectName, true)
+	// parse releases json
+    def releasesArtifactsUrlBase = "http://localhost:8081/service/rest/v1/components?repository=maven-releases"
+	def releasesArtifactsUrl = releasesArtifactsUrlBase
+	while(true) {
+		println("releasesArtifactsUrl: "+releasesArtifactsUrl)
+		def releasesArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${releasesArtifactsUrl }"].execute().text
+		def jsonSlurper = new JsonSlurper()
+		def releasesArtifactsJsonObject = jsonSlurper.parseText(releasesArtifactsJson)
+		def releasesArtifacts = parseAndGetArtifactList(releasesArtifactsJsonObject, projectName, true)
+		println("after parseAndGetArtifactList")
+		artifacts.addAll(releasesArtifacts)
+		if (releasesArtifactsJsonObject.continuationToken == null) {
+			break
+		}
+		releasesArtifactsUrl = releasesArtifactsUrlBase+"&continuationToken="+releasesArtifactsJsonObject.continuationToken
+	}
     // parse snapshots json
-    def snapshotsArtifacts = parseAndGetArtifactList(snapshotsArtifactsJson, projectName, false)
-
-    artifacts.addAll(releasesArtifacts)
-    artifacts.addAll(snapshotsArtifacts)
+    def snapshotsArtifactsUrlBase = "http://localhost:8081/service/rest/v1/components?repository=maven-snapshots"
+	def snapshotsArtifactsUrl = snapshotsArtifactsUrlBase
+	while(true) {
+		println("snapshotsArtifactsUrl: "+snapshotsArtifactsUrl)
+		def snapshotsArtifactsJson = ["curl", "-s", "-u", deploymentCredentials, "-H", "accept: application/json", "-k", "--url", "${snapshotsArtifactsUrl }"].execute().text
+		def jsonSlurper = new JsonSlurper()
+		def snapshotsArtifactsJsonObject = jsonSlurper.parseText(snapshotsArtifactsJson)
+		def snapshotsArtifacts = parseAndGetArtifactList(snapshotsArtifactsJsonObject, projectName, false)
+		println("after parseAndGetArtifactList")
+		artifacts.addAll(snapshotsArtifacts)
+		if (snapshotsArtifactsJsonObject.continuationToken == null) {
+			break
+		}
+		snapshotsArtifactsUrl = snapshotsArtifactsUrlBase+"&continuationToken="+snapshotsArtifactsJsonObject.continuationToken
+	}
 	
 	artifacts.sort() {a,b -> b.version <=> a.version } // sort on version in reverese
 	
 	for(artifact in artifacts){
 		artifactItemList.add(artifact.releaseOrSnapshot + " " + artifact.version)
+		println(artifact.releaseOrSnapshot + " " + artifact.version)
 	}
 	println ((new Date()).format("yyyy-MM-dd hh:mm:ss") + " artifactItemList end")
     return artifactItemList
@@ -54,10 +75,8 @@ try {
     print "There was a problem fetching the artifacts"
 }
 
-def parseAndGetArtifactList(artifactsJson, itemName, isRelease) {
+def parseAndGetArtifactList(artifactsJsonObject, itemName, isRelease) {
     List<Artifact> artifacts = new ArrayList<>()
-    def jsonSlurper = new JsonSlurper()
-    def artifactsJsonObject = jsonSlurper.parseText(artifactsJson)
     def items = artifactsJsonObject.items
     def releaseOrSnapshot = isRelease ? "RELEASE" : "SNAPSHOT"
     for(item in items){
